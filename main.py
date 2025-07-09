@@ -2,6 +2,15 @@ import pygame
 import requests
 import math
 import datetime
+import socket
+import time
+# === WiFi Connection Check ===
+def is_wifi_connected():
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=1)
+        return True
+    except OSError:
+        return False
 
 # === Reverse Geocoding Function ===
 def get_road_name(lat, lon):
@@ -23,14 +32,17 @@ def get_road_name(lat, lon):
         return f"Error: {e}"
 
 # === Example Coordinates ===
-latitude = 28.187998371742975
-longitude = -82.55234701672089
+latitude = 27.972538498010568
+longitude = -82.53794988613856
 
 # === Pygame Setup ===
 pygame.init()
 screen_width, screen_height = 240, 320
 screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("Current Road Display")
+hotspot_icon = pygame.image.load("hotspot-icon.png").convert_alpha()
+hotspot_icon = pygame.transform.smoothscale(hotspot_icon, (30, 17))
+print("Icon size:", hotspot_icon.get_size())
+pygame.display.set_caption("picycle")
 
 # Fonts
 speed_font = pygame.font.SysFont(None, 120)     # Bigger for vertical layout
@@ -43,6 +55,9 @@ clock = pygame.time.Clock()
 
 # === Fetch Road Name ===
 road_name = get_road_name(latitude, longitude)
+cached_road_name = None
+last_road_update_time = 0
+update_interval_sec = 5
 
 # Simulated speed
 current_speed_mph = 35
@@ -57,9 +72,47 @@ while running:
 
     # === Draw current time at the top center (lowered to 30 pixels) ===
     now = datetime.datetime.now()
-    time_str = now.strftime("%I:%M %p").lstrip("0")  # 12-hour format without leading zero, no seconds
+    connected = is_wifi_connected()
+
+    current_time = time.time()
+    if connected and current_time - last_road_update_time > update_interval_sec:
+        try:
+            road_name = get_road_name(latitude, longitude)
+            cached_road_name = road_name
+            last_road_update_time = current_time
+        except Exception:
+            road_name = cached_road_name if cached_road_name else "Unknown Road"
+    else:
+        road_name = cached_road_name if cached_road_name else "Unknown Road"
+
+    if 'slide_y' not in locals():
+        slide_y = 0
+    target_y = 0 if connected else 100
+    if slide_y < target_y:
+        slide_y += (target_y - slide_y) * 0.1  # slower going down
+    else:
+        slide_y += (target_y - slide_y) * 0.3  # faster going up
+
+    time_str = now.strftime("%I:%M %p").lstrip("0")
     time_surface = time_font.render(time_str, True, (255, 255, 255))
-    time_rect = time_surface.get_rect(center=(screen_width // 2, 30))
+    combined_width = hotspot_icon.get_width() + 10 + time_surface.get_width()
+    icon_x = (screen_width - combined_width) // 2
+    icon_y = 30
+
+    # Dim the icon if not connected
+    icon_tinted = hotspot_icon.copy()
+    if not connected:
+        icon_tinted.fill((100, 100, 100, 255), special_flags=pygame.BLEND_RGBA_MULT)
+
+    # Draw icon
+    screen.blit(icon_tinted, (icon_x, icon_y))
+
+    # Draw red slash if disconnected
+    if not connected:
+        pygame.draw.line(screen, (150, 0, 0), (icon_x, icon_y), (icon_x + 30, icon_y + 17), 2)
+
+    # Draw time
+    time_rect = time_surface.get_rect(topleft=(icon_x + hotspot_icon.get_width() + 5, icon_y))
     screen.blit(time_surface, time_rect)
 
     # Draw speed number and MPH label centered vertically and horizontally
@@ -81,9 +134,9 @@ while running:
     screen.blit(mph_surface, mph_rect)
 
     # === Draw V-shaped gradient behind odometer ===
-    v_height = 70  # height of the V shape
+    v_height = 100 # Height of the V shape
     v_width_top = 60  # width of the V at the top (near speed)
-    v_width_bottom = 150  # width at the bottom (behind odometer)
+    v_width_bottom = 200  # width at the bottom (behind odometer)
 
     # Center X
     cx = screen_width // 2
@@ -127,7 +180,7 @@ while running:
         alpha = int(200 * (1 - i / v_height))  # fade from 200 to 0
         pygame.draw.line(v_surf, (255, 255, 255, alpha), (right_x, y), (right_x, y))
 
-    screen.blit(v_surf, (0, v_top_y))
+    screen.blit(v_surf, (0, v_top_y + int(slide_y)))
 
     screen.blit(odometer_surface, odometer_rect)
 
@@ -142,9 +195,9 @@ while running:
         road_surface = road_font.render(road_name, True, (255, 255, 255))
 
     # === Rounded corner gradient behind road section ===
-    line_y = screen_height - 50
-    gradient_start = screen_height - 1
-    gradient_end = screen_height - 30
+    line_y = screen_height - 50 + int(slide_y)
+    gradient_start = screen_height - 1 + int(slide_y)
+    gradient_end = screen_height - 30 + int(slide_y)
     gradient_height = gradient_start - gradient_end
     for y in range(gradient_start, gradient_end - 1, -1):
         blend_y = (y - gradient_end) / gradient_height  # vertical blend 0 to 1
