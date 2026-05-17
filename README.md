@@ -1,4 +1,8 @@
 # picycle-2
+
+## Update:
+This project has been put on hold for now.
+
 ## Overview:
 The picycle is a device that is meant to provide data to a bike rider while they are cycling. Here is what it looks like:
 
